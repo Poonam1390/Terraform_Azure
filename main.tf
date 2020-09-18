@@ -83,6 +83,20 @@ resource "azurerm_linux_virtual_machine_scale_set" "main" {
     path = "/home/poonam/.ssh/authorized_keys"
   }
 
+  
+  network_profile {
+    name    = "terraformnetworkprofile"
+    primary = true
+
+    ip_configuration {
+      name                                   = "TestIPConfiguration"
+      primary                                = true
+      subnet_id                              = azurerm_subnet.example.id
+      load_balancer_backend_address_pool_ids = [azurerm_lb_backend_address_pool.bpepool.id]
+      load_balancer_inbound_nat_rules_ids    = [azurerm_lb_nat_pool.lbnatpool.id]
+    }
+  }
+
   source_image_reference {
     publisher = "Canonical"
     offer     = "UbuntuServer"
