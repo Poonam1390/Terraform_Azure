@@ -1,4 +1,4 @@
-provider "azurerm" {
+rovider "azurerm" {
   version = "=2.20.0"
   features {}
 }
@@ -16,31 +16,18 @@ resource "azurerm_virtual_network" "main" {
 }
 
 resource "azurerm_public_ip" "main" {
-    name = "${var.prefix}-publicIP"
-    location = azurerm_resource_group.main.location
-    resource_group_name = azurerm_resource_group.main.name
-    allocation_method = "Static"
+  name                = "${var.prefix}-publicIP"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  allocation_method   = "Static"
 }
-resource "azurerm_subnet" "internal" {
-  name                 = "internal"
+resource "azurerm_subnet" "main" {
+  name                 = "subnet_internal"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefix       = "10.0.2.0/24"
 }
 
-resource "azurerm_network_interface" "main" {
-  name    = "${var.prefix}-nic"
-  location  = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  primary = true
-
-    ip_configuration {
-      name      = "internal"
-      subnet_id = azurerm_subnet.internal.id
-      private_ip_address_allocation = "Dynamic"
-      public_ip_address_id = azurerm_public_ip.main.id
-    }
-  }
 
 resource "azurerm_lb" "main" {
   name                = "test"
@@ -59,6 +46,15 @@ resource "azurerm_lb_backend_address_pool" "bpepool" {
   name                = "BackEndAddressPool"
 }
 
+resource "azurerm_lb_probe" "main"{
+  resource_group_name = azurerm_resource_group.main.name
+  loadbalancer_id = azurerm_lb.main.id
+  name = "http-probe"
+  protocol = "Http"
+  request_path = "/health"
+  port = 8080
+}
+
 resource "azurerm_lb_nat_pool" "lbnatpool" {
   resource_group_name            = azurerm_resource_group.main.name
   name                           = "ssh"
@@ -68,22 +64,28 @@ resource "azurerm_lb_nat_pool" "lbnatpool" {
   frontend_port_end              = 50119
   backend_port                   = 22
   frontend_ip_configuration_name = "PublicIPAddress"
+}
 
-resource "azurerm_linux_virtual_machine_scale_set" "main" {
+resource "azurerm_virtual_machine_scale_set" "main" {
   name                = "${var.prefix}-vmss"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  sku                 = "Standard_F2"
-  instances           = 2
-  admin_username      = "adminuser"
-  zone_balance        = "True"
 
-  ssh_keys {
-    key_data = file("~/.ssh/id_rsa.pub")
-    path = "/home/poonam/.ssh/authorized_keys"
+  upgrade_policy_mode  = "Rolling"
+
+  rolling_upgrade_policy {
+    max_batch_instance_percent              = 20
+    max_unhealthy_upgraded_instance_percent = 5
+    max_unhealthy_instance_percent          = 20
+    pause_time_between_batches              = "PT0S"
+  }
+  sku {
+    name     = "Standard_F2"
+    capacity = 2
+    tier     = "Standard"
   }
 
-  
+
   network_profile {
     name    = "terraformnetworkprofile"
     primary = true
@@ -91,33 +93,38 @@ resource "azurerm_linux_virtual_machine_scale_set" "main" {
     ip_configuration {
       name                                   = "TestIPConfiguration"
       primary                                = true
-      subnet_id                              = azurerm_subnet.example.id
+      subnet_id                              = azurerm_subnet.main.id
       load_balancer_backend_address_pool_ids = [azurerm_lb_backend_address_pool.bpepool.id]
       load_balancer_inbound_nat_rules_ids    = [azurerm_lb_nat_pool.lbnatpool.id]
     }
   }
 
-  source_image_reference {
+  storage_profile_image_reference {
     publisher = "Canonical"
     offer     = "UbuntuServer"
     sku       = "16.04-LTS"
     version   = "latest"
   }
 
-  os_disk {
-    storage_account_type = "Standard_LRS"
-    caching              = "ReadWrite"
+  storage_profile_os_disk {
+    managed_disk_type = "Standard_LRS"
+    caching           = "ReadWrite"
+    create_option     = "FromImage"
   }
 
   os_profile {
-    computer_name = "hostname"
-    admin_username = ${var.username}
-    admin_password = ${var.password}
+    computer_name_prefix = "hostname"
+    admin_username       = "umpoonam"
   }
 
   os_profile_linux_config {
-    disable_password_authentication = true 
-  }
+    disable_password_authentication = true
 
-  
+    ssh_keys {
+      path     = "/home/umpoonam/.ssh/authorized_keys"
+      key_data = file("~/.ssh/id_rsa.pub")
+    }
+  }
 }
+
+
